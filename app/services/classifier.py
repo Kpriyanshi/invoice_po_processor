@@ -7,6 +7,8 @@ from app.core.keywords import (
     SUBJECT_KEYWORDS,
 )
 
+_FILENAME_KEYWORDS = ('invoice', 'tax', 'bill', 'gst', 'inv')
+
 
 def score_subject(subject: str) -> tuple[int, list]:
     subject_lower = subject.lower()
@@ -39,12 +41,18 @@ def score_attachments(attachments: list) -> tuple[int, list]:
     signals = []
 
     for filename in attachments:
+        name_lower = filename.lower()
         ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
         if ext in INVOICE_ATTACHMENT_TYPES:
             score += INVOICE_ATTACHMENT_TYPES[ext]
             signals.append(f"attachment: '{filename}' ({ext})")
+        for kw in _FILENAME_KEYWORDS:
+            if kw in name_lower:
+                score += 15
+                signals.append(f"attachment-name: '{kw}' in '{filename}'")
+                break
 
-    return min(score, 25), signals
+    return min(score, 35), signals
 
 
 def get_email_body(payload: dict) -> str:
@@ -71,13 +79,16 @@ def get_email_body(payload: dict) -> str:
 
 
 def get_attachments(payload: dict) -> list:
-    attachments = []
+    attachments: list[str] = []
 
-    if 'parts' in payload:
-        for part in payload['parts']:
-            if part.get('filename'):
-                attachments.append(part['filename'])
+    def walk(part: dict) -> None:
+        filename = part.get('filename') or ''
+        if filename:
+            attachments.append(filename)
+        for child in part.get('parts') or []:
+            walk(child)
 
+    walk(payload)
     return attachments
 
 

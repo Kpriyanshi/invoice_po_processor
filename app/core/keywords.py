@@ -1,5 +1,5 @@
 SUBJECT_KEYWORDS = {
-    'invoice': 40,
+    'invoice': 50,
     'tax invoice': 45,
     'gst invoice': 45,
     'proforma invoice': 40,
@@ -14,9 +14,12 @@ SUBJECT_KEYWORDS = {
 }
 
 BODY_KEYWORDS = {
-    'invoice no': 20,
+    'tax invoice': 25,
+    'bill of supply': 20,
+    'invoice': 20,
+    'invoice no': 25,
     'invoice number': 20,
-    'invoice #': 20,
+    'invoice #': 25,
     'amount due': 20,
     'total amount': 15,
     'due date': 15,
@@ -36,7 +39,7 @@ BODY_KEYWORDS = {
 }
 
 INVOICE_ATTACHMENT_TYPES = {
-    '.pdf': 25,
+    '.pdf': 30,
     '.docx': 15,
     '.xlsx': 10,
     '.doc': 10,

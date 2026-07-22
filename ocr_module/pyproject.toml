@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocr-module"
+version = "0.1.0"
+description = "GPT-4 Vision OCR extraction for invoices"
+requires-python = ">=3.11"
+dependencies = [
+    "openai>=1.40.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "PyMuPDF>=1.24.0",
+    "Pillow>=10.3.0",
+]
+
+[tool.setuptools]
+packages = ["ocr_module"]
+package-dir = {"ocr_module" = "."}

@@ -8,7 +8,7 @@ class Settings(BaseSettings):
 
     gmail_token_path: str = 'data/token.json'
     gmail_credentials_path: str = 'credentials.json'
-    confidence_threshold: int = 85
+    confidence_threshold: int = 60
     invoice_save_folder: str = 'data/invoices'
     processed_ids_path: str = 'data/processed_ids.json'
     last_history_id_path: str = 'data/last_history_id.json'
@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     clamav_port: int = 3310
     clamav_scan_timeout_sec: int = 30
     malware_scan_fail_open: bool = False
+
+    # OCR — GPT-4 Vision on ingest (EasyOCR settings kept for legacy scripts)
+    ocr_enabled: bool = True
+    ocr_dpi: int = 150
+    max_pages_per_pdf: int = 10
+    ocr_languages: str = 'en'
+    ocr_output_dir: str = 'data/extracted'
+    ocr_debug_images: bool = False
+    ocr_debug_dir: str = 'data/debug'
 
     def allowed_mime_set(self) -> set[str]:
         return {m.strip() for m in self.allowed_mime_types.split(',') if m.strip()}

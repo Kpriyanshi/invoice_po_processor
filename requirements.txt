@@ -44,3 +44,7 @@ uvicorn==0.49.0
 python-magic==0.4.27
 filetype==1.2.0
 clamd==1.0.2
+openai>=1.40.0
+Pillow>=10.3.0
+PyMuPDF>=1.24.0
+-e ./ocr_module

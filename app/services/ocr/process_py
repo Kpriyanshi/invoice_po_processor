@@ -1,0 +1,39 @@
+for page in iter_pdf_page_images(pdf_path, dpi=dpi, max_pages=max_pages):
+    page_count += 1
+
+    # Keep a copy of the original page image
+    original = page.image_bgr.copy()
+
+    # Save original image
+    if debug_enabled:
+        cv2.imwrite(
+            os.path.join(
+                debug_dir,
+                f"page_{page.page_index}_original.png"
+            ),
+            original
+        )
+
+    # Preprocess
+    processed = preprocess_for_ocr(original)
+
+    # Save processed image
+    if debug_enabled:
+        cv2.imwrite(
+            os.path.join(
+                debug_dir,
+                f"page_{page.page_index}_processed.png"
+            ),
+            processed
+        )
+
+    rgb = to_rgb_for_easyocr(processed)
+
+    lines = run_easyocr(
+        rgb,
+        page_index=page.page_index,
+        langs_csv=langs
+    )
+
+    all_lines.extend(lines)
+    all_confs.extend([l.confidence for l in lines])

@@ -13,16 +13,22 @@ from app.services.gmail_client import (
     save_last_history_id,
     save_processed_id,
 )
+from app.services.ocr.vision_service import OcrJob, is_ocr_supported
 
 logger = logging.getLogger(__name__)
 
 
-def process_gmail_notification(history_id: str) -> None:
+def process_gmail_notification(history_id: str) -> list[OcrJob]:
+    """
+    Classify new Gmail messages, save invoice attachments, and return OCR jobs
+    for background processing after the webhook acks Pub/Sub.
+    """
     settings = get_settings()
+    ocr_jobs: list[OcrJob] = []
 
     if history_id in load_processed_ids():
         logger.debug('Skipping duplicate history_id: %s', history_id)
-        return
+        return ocr_jobs
 
     save_processed_id(history_id)
 
@@ -37,7 +43,7 @@ def process_gmail_notification(history_id: str) -> None:
         ).execute()
     except HttpError:
         save_last_history_id(history_id)
-        return
+        return ocr_jobs
 
     for change in history.get('history', []):
         for msg in change.get('messagesAdded', []):
@@ -82,6 +88,22 @@ def process_gmail_notification(history_id: str) -> None:
                                 'signals': result['signals'] + ['security: all attachments rejected'],
                             }
                             add_to_queue(msg_id, security_result)
+                        else:
+                            for path in save_result.saved_paths:
+                                if is_ocr_supported(path):
+                                    ocr_jobs.append(
+                                        OcrJob(
+                                            path=path,
+                                            message_id=msg_id,
+                                            subject=result['subject'],
+                                            sender=result['sender'],
+                                        )
+                                    )
+                                else:
+                                    logger.info(
+                                        'Saved non-OCR attachment (no vision job): %s',
+                                        path,
+                                    )
 
                 elif result['verdict'] == 'exception_queue':
                     logger.warning(
@@ -102,3 +124,4 @@ def process_gmail_notification(history_id: str) -> None:
                 continue
 
     save_last_history_id(history_id)
+    return ocr_jobs
