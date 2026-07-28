@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     host: str = '0.0.0.0'
     port: int = 8000
     log_level: str = 'INFO'
+    database_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
 
     # Security — MIME validation
     mime_validation_enabled: bool = True
@@ -37,14 +38,15 @@ class Settings(BaseSettings):
     clamav_scan_timeout_sec: int = 30
     malware_scan_fail_open: bool = False
 
-    # OCR — GPT-4 Vision on ingest (EasyOCR settings kept for legacy scripts)
+    # OCR — GPT-4 Vision on ingest (see ocr_module / vision_service)
     ocr_enabled: bool = True
-    ocr_dpi: int = 150
-    max_pages_per_pdf: int = 10
-    ocr_languages: str = 'en'
     ocr_output_dir: str = 'data/extracted'
-    ocr_debug_images: bool = False
-    ocr_debug_dir: str = 'data/debug'
+
+    # GSTIN live validation (gstincheck.co.in) after OCR
+    gstin_api_validation_enabled: bool = True
+    gstin_api_key: str = ''
+    gstin_api_base_url: str = 'https://sheet.gstincheck.co.in'
+    gstin_api_timeout_sec: float = 30.0
 
     def allowed_mime_set(self) -> set[str]:
         return {m.strip() for m in self.allowed_mime_types.split(',') if m.strip()}

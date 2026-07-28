@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import get_settings
+from app.services.exception_case import (
+    ExceptionCategory,
+    ExceptionRootCause,
+    root_cause_from_gstin_failures,
+)
 from app.services.exception_queue import add_to_queue
 
 logger = logging.getLogger(__name__)
@@ -43,16 +48,72 @@ def _queue_ocr_issue(
     signal: str,
     body_preview: str = '',
     confidence: int = 0,
+    signals: list[str] | None = None,
+    reason: str = '',
+    category: str = '',
+    root_cause: str = '',
 ) -> None:
-    add_to_queue(
+    signal_list = list(signals) if signals else [signal]
+    payload = {
+        'subject': subject,
+        'sender': sender,
+        'confidence': confidence,
+        'signals': signal_list,
+        'reason': reason or '; '.join(signal_list),
+        'body_preview': body_preview,
+    }
+    if category:
+        payload['category'] = category
+    if root_cause:
+        payload['root_cause'] = root_cause
+    add_to_queue(message_id, payload)
+
+
+def _validate_gstins_after_ocr(
+    result,
+    *,
+    message_id: str,
+    subject: str,
+    sender: str,
+    pdf_path: str,
+) -> None:
+    """
+    Live GSTIN check for vendor (required) and buyer (if present).
+    On failure, queue for manual review with an explicit rejection reason.
+    JSON/Postgres already saved — queue does not undo extraction.
+    """
+    from app.services.validation.gstin_api import validate_party_gstins
+
+    data = getattr(result, 'data', None)
+    vendor_gstin = getattr(data, 'vendor_gstin', None) if data is not None else None
+    buyer_gstin = getattr(data, 'buyer_gstin', None) if data is not None else None
+
+    failures = validate_party_gstins(vendor_gstin, buyer_gstin)
+    if not failures:
+        return
+
+    signals = [f'gstin: {f.reason}' for f in failures]
+    reason = (
+        'Rejected for further processing — GSTIN validation failed. '
+        + '; '.join(signals)
+    )
+    logger.warning(
+        'GSTIN validation failed | message_id=%s file=%s reasons=%s',
         message_id,
-        {
-            'subject': subject,
-            'sender': sender,
-            'confidence': confidence,
-            'signals': [signal],
-            'body_preview': body_preview,
-        },
+        pdf_path,
+        signals,
+    )
+    _queue_ocr_issue(
+        message_id=message_id or 'unknown',
+        subject=subject or os.path.basename(pdf_path),
+        sender=sender,
+        signal=signals[0],
+        signals=signals,
+        reason=reason,
+        body_preview=pdf_path,
+        confidence=int(round(float(getattr(result, 'overall_confidence', 0) or 0) * 100)),
+        category=ExceptionCategory.GSTIN.value,
+        root_cause=root_cause_from_gstin_failures(failures),
     )
 
 
@@ -105,6 +166,8 @@ def run_vision_ocr_job(
             sender=sender,
             signal=f'ocr: module_import_failed: {e}',
             body_preview=pdf_path,
+            category=ExceptionCategory.OCR.value,
+            root_cause=ExceptionRootCause.OCR_MODULE_IMPORT_FAILED.value,
         )
         return None
 
@@ -134,6 +197,8 @@ def run_vision_ocr_job(
             sender=sender,
             signal=f'ocr: low_confidence: {e}',
             body_preview=pdf_path,
+            category=ExceptionCategory.OCR.value,
+            root_cause=ExceptionRootCause.OCR_LOW_CONFIDENCE.value,
         )
         return None
     except VisionAPIError as e:
@@ -149,6 +214,8 @@ def run_vision_ocr_job(
             sender=sender,
             signal=f'ocr: vision_api_error: {e}',
             body_preview=pdf_path,
+            category=ExceptionCategory.OCR.value,
+            root_cause=ExceptionRootCause.OCR_VISION_API_ERROR.value,
         )
         return None
     except Exception as e:
@@ -163,6 +230,8 @@ def run_vision_ocr_job(
             sender=sender,
             signal=f'ocr: unexpected_error: {e}',
             body_preview=pdf_path,
+            category=ExceptionCategory.OCR.value,
+            root_cause=ExceptionRootCause.OCR_UNEXPECTED_ERROR.value,
         )
         return None
 
@@ -170,6 +239,54 @@ def run_vision_ocr_job(
     payload = result.model_dump(mode='json')
     with open(out_path, 'w', encoding='utf-8') as f:
         json.dump(payload, f, indent=2, ensure_ascii=False)
+
+    # Dual-write to Postgres (JSON already saved; DB failure must not undo OCR)
+    if settings.database_url:
+        try:
+            from app.db.repository import upsert_ocr_result
+            from app.db.session import SessionLocal
+
+            if SessionLocal is None:
+                raise RuntimeError('DATABASE_URL set but SessionLocal is None')
+
+            with SessionLocal() as session:
+                invoice_id = upsert_ocr_result(
+                    session,
+                    result,
+                    message_id=message_id,
+                    subject=subject,
+                    sender=sender,
+                )
+                session.commit()
+            logger.info(
+                'OCR DB upsert ok | message_id=%s invoice_id=%s source_file=%s',
+                message_id,
+                invoice_id,
+                result.source_file,
+            )
+        except Exception as e:
+            logger.exception(
+                'OCR DB upsert failed | message_id=%s file=%s',
+                message_id,
+                pdf_path,
+            )
+            _queue_ocr_issue(
+                message_id=message_id or 'unknown',
+                subject=subject or os.path.basename(pdf_path),
+                sender=sender,
+                signal=f'ocr: db_upsert_failed: {e}',
+                body_preview=pdf_path,
+                category=ExceptionCategory.PERSISTENCE.value,
+                root_cause=ExceptionRootCause.OCR_DB_UPSERT_FAILED.value,
+            )
+
+    _validate_gstins_after_ocr(
+        result,
+        message_id=message_id,
+        subject=subject,
+        sender=sender,
+        pdf_path=pdf_path,
+    )
 
     logger.info(
         'OCR complete | message_id=%s file=%s out=%s confidence=%.3f warnings=%s model=%s',

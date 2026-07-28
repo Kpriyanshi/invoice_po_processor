@@ -1,0 +1,1 @@
+# Database package for OCR invoice persistence and metadata storage

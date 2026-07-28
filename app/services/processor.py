@@ -5,6 +5,7 @@ from googleapiclient.errors import HttpError
 from app.core.config import get_settings
 from app.services.attachment import save_attachments
 from app.services.classifier import classify_email
+from app.services.exception_case import ExceptionCategory, ExceptionRootCause
 from app.services.exception_queue import add_to_queue
 from app.services.gmail_client import (
     get_gmail_service,
@@ -86,6 +87,12 @@ def process_gmail_notification(history_id: str) -> list[OcrJob]:
                             security_result = {
                                 **result,
                                 'signals': result['signals'] + ['security: all attachments rejected'],
+                                'category': ExceptionCategory.SECURITY.value,
+                                'root_cause': ExceptionRootCause.SECURITY_ALL_ATTACHMENTS_REJECTED.value,
+                                'reason': (
+                                    'Rejected for further processing — all attachments '
+                                    'failed security checks (MIME/ClamAV).'
+                                ),
                             }
                             add_to_queue(msg_id, security_result)
                         else:
@@ -111,7 +118,19 @@ def process_gmail_notification(history_id: str) -> list[OcrJob]:
                         result['confidence'],
                         settings.confidence_threshold,
                     )
-                    add_to_queue(msg_id, result)
+                    add_to_queue(
+                        msg_id,
+                        {
+                            **result,
+                            'category': ExceptionCategory.CLASSIFICATION.value,
+                            'root_cause': ExceptionRootCause.CLASSIFICATION_LOW_CONFIDENCE.value,
+                            'reason': (
+                                f'Rejected for further processing — classification confidence '
+                                f'{result["confidence"]}% below threshold '
+                                f'{settings.confidence_threshold}%.'
+                            ),
+                        },
+                    )
 
                 else:
                     logger.info(

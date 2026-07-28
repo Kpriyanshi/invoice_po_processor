@@ -18,6 +18,39 @@ def test_queue(client):
     assert isinstance(response.json(), list)
 
 
+def test_queue_review_by_case_id(client, tmp_path, monkeypatch):
+    queue_path = tmp_path / 'exception_queue.json'
+    monkeypatch.setenv('EXCEPTION_QUEUE_PATH', str(queue_path))
+    from app.core.config import get_settings
+    from app.services.exception_queue import add_to_queue
+
+    get_settings.cache_clear()
+    case_id = add_to_queue(
+        'msg-review',
+        {
+            'subject': 'Invoice',
+            'sender': 'a@b.com',
+            'confidence': 50,
+            'signals': ["subject: 'invoice'"],
+            'body_preview': '',
+            'category': 'classification',
+            'root_cause': 'CLASSIFICATION_LOW_CONFIDENCE',
+        },
+    )
+
+    missing = client.post('/queue/not-a-real-case/review', json={'approved': False})
+    assert missing.status_code == 404
+
+    ok = client.post(f'/queue/{case_id}/review', json={'approved': True})
+    assert ok.status_code == 200
+    assert ok.json() == {'case_id': case_id, 'status': 'approved'}
+
+    pending = client.get('/queue/pending')
+    assert pending.status_code == 200
+    assert all(c.get('case_id') != case_id for c in pending.json())
+    get_settings.cache_clear()
+
+
 def test_webhook_empty_body(client):
     response = client.post('/webhook', json=None)
     assert response.status_code == 200

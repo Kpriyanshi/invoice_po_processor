@@ -11,6 +11,23 @@ services:
       start_period: 120s
     restart: unless-stopped
 
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: invoice
+      POSTGRES_PASSWORD: invoice
+      POSTGRES_DB: invoice_ocr
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U invoice -d invoice_ocr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   app:
     build: .
     ports:
@@ -20,10 +37,16 @@ services:
     environment:
       CLAMAV_HOST: clamav
       CLAMAV_PORT: 3310
+      DATABASE_URL: postgresql+psycopg://invoice:invoice@postgres:5432/invoice_ocr
     volumes:
       - ./data:/app/data
       - ./credentials.json:/app/credentials.json:ro
     depends_on:
       clamav:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  pgdata:
